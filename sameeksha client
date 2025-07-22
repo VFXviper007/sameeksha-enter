@@ -1,0 +1,1067 @@
+import customtkinter as ctk
+import mysql.connector
+from mysql.connector import Error
+import tkinter.messagebox as messagebox
+from datetime import datetime
+import csv
+from tkinter import filedialog
+
+# Set appearance mode and color theme
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("blue")
+
+
+class FestManagementSystem:
+    def __init__(self):
+        self.root = ctk.CTk()
+        self.root.title("Sameeksha")
+
+        # Get screen dimensions and scale window
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        # Scale window to 80% of screen size, with minimum dimensions
+        window_width = max(1000, int(screen_width * 0.8))
+        window_height = max(600, int(screen_height * 0.8))
+
+        # Center window on screen
+        pos_x = (screen_width // 2) - (window_width // 2)
+        pos_y = (screen_height // 2) - (window_height // 2)
+
+        self.root.geometry(f"{window_width}x{window_height}+{pos_x}+{pos_y}")
+        self.root.resizable(True, True)  # Allow resizing
+        self.root.minsize(1000, 600)  # Set minimum size
+
+        # Color scheme
+        self.colors = {
+            'primary_blue': '#1f538d',
+            'light_blue': '#3498db',
+            'white': '#ffffff',
+            'light_gray': '#f8f9fa',
+            'text_dark': '#2c3e50',
+            'houses': {
+                'Ganga': '#ff8c00',
+                'Yamuna': '#3498db',
+                'Kaveri': '#27ae60',
+                'Krishna': '#e74c3c'
+            }
+        }
+
+        # Database configuration
+        self.db_config = {
+            'host': 'localhost',
+            'user': 'root',
+            'password': 'root',
+            'database': 'cultural_fest'
+        }
+
+        # Initialize database
+        self.init_database()
+
+        # Create UI
+        self.create_ui()
+
+        # Show home by default
+        self.show_home()
+
+    def init_database(self):
+        """Initialize database and create tables if they don't exist"""
+        try:
+            # Connect to MySQL server
+            connection = mysql.connector.connect(
+                host=self.db_config['host'],
+                user=self.db_config['user'],
+                password=self.db_config['password']
+            )
+            cursor = connection.cursor()
+
+            # Create database if it doesn't exist
+            cursor.execute("CREATE DATABASE IF NOT EXISTS cultural_fest")
+            cursor.execute("USE cultural_fest")
+
+            # Create tables for all categories
+            for cat in range(1, 6):
+                # Individual events table
+                individual_table = f"""
+                CREATE TABLE IF NOT EXISTS cat{cat}_individual (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    student_name VARCHAR(100) NOT NULL,
+                    class_num INT NOT NULL,
+                    house ENUM('Ganga', 'Yamuna', 'Kaveri', 'Krishna') NOT NULL,
+                    event_name VARCHAR(100) NOT NULL,
+                    position INT NOT NULL,
+                    points INT NOT NULL,
+                    entry_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+
+                # Group events table
+                group_table = f"""
+                CREATE TABLE IF NOT EXISTS cat{cat}_group (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    team_name VARCHAR(100) NOT NULL,
+                    class_num INT NOT NULL,
+                    house ENUM('Ganga', 'Yamuna', 'Kaveri', 'Krishna') NOT NULL,
+                    event_name VARCHAR(100) NOT NULL,
+                    position INT NOT NULL,
+                    entry_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+
+                cursor.execute(individual_table)
+                cursor.execute(group_table)
+
+            connection.commit()
+            cursor.close()
+            connection.close()
+
+        except Error as e:
+            messagebox.showerror("Database Error", f"Error initializing database: {e}")
+
+    def get_db_connection(self):
+        """Get database connection"""
+        try:
+            connection = mysql.connector.connect(**self.db_config)
+            return connection
+        except Error as e:
+            messagebox.showerror("Database Error", f"Error connecting to database: {e}")
+            return None
+
+    def determine_category(self, class_num):
+        """Determine category based on class number"""
+        if 1 <= class_num <= 2:
+            return 1
+        elif 3 <= class_num <= 5:
+            return 2
+        elif 6 <= class_num <= 8:
+            return 3
+        elif 9 <= class_num <= 10:
+            return 4
+        elif 11 <= class_num <= 12:
+            return 5
+        else:
+            return None
+
+    def get_points_for_position(self, position):
+        """Get points based on position for individual events"""
+        points_map = {1: 5, 2: 3, 3: 1}
+        return points_map.get(position, 0)
+
+    def create_ui(self):
+        """Create the main UI"""
+        # Main container
+        self.main_frame = ctk.CTkFrame(self.root, fg_color=self.colors['white'])
+        self.main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Sidebar
+        self.create_sidebar()
+
+        # Content area
+        self.content_frame = ctk.CTkFrame(self.main_frame, fg_color=self.colors['light_gray'])
+        self.content_frame.pack(side="right", fill="both", expand=True, padx=(0, 10))
+
+    def create_sidebar(self):
+        """Create sidebar with navigation buttons"""
+        self.sidebar = ctk.CTkFrame(self.main_frame, width=200, fg_color=self.colors['primary_blue'])
+        self.sidebar.pack(side="left", fill="y", padx=(10, 10), pady=10)
+        self.sidebar.pack_propagate(False)
+
+        # Title
+        title_label = ctk.CTkLabel(
+            self.sidebar,
+            text="Cultural Fest\nManagement",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=self.colors['white']
+        )
+        title_label.pack(pady=(20, 30))
+
+        # Navigation buttons
+        self.nav_buttons = {}
+        nav_items = [
+            ("Home", self.show_home),
+            ("Enter Data", self.show_enter_data),
+            ("Update Data", self.show_update_data),
+            ("Statistics", self.show_statistics),
+            ("Export Data", self.show_export_data)
+        ]
+
+        for text, command in nav_items:
+            btn = ctk.CTkButton(
+                self.sidebar,
+                text=text,
+                command=command,
+                width=160,
+                height=40,
+                font=ctk.CTkFont(size=14, weight="bold"),
+                fg_color="transparent",
+                text_color=self.colors['white'],
+                hover_color=self.colors['light_blue']
+            )
+            btn.pack(pady=5)
+            self.nav_buttons[text] = btn
+
+    def clear_content(self):
+        """Clear content frame"""
+        for widget in self.content_frame.winfo_children():
+            widget.destroy()
+
+    def show_home(self):
+        """Show home tab with house total points"""
+        self.clear_content()
+
+        # Header
+        header = ctk.CTkLabel(
+            self.content_frame,
+            text="House Points Dashboard",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color=self.colors['text_dark']
+        )
+        header.pack(pady=20)
+
+        # Get total points for each house
+        house_points = self.get_total_house_points()
+
+        # Create points display
+        points_frame = ctk.CTkFrame(self.content_frame, fg_color=self.colors['white'])
+        points_frame.pack(pady=20, padx=40, fill="x")
+
+        # Sort houses by points (descending)
+        sorted_houses = sorted(house_points.items(), key=lambda x: x[1], reverse=True)
+
+        for i, (house, points) in enumerate(sorted_houses):
+            house_frame = ctk.CTkFrame(points_frame, fg_color=self.colors['houses'][house])
+            house_frame.pack(pady=10, padx=20, fill="x")
+
+            house_label = ctk.CTkLabel(
+                house_frame,
+                text=f"#{i + 1} {house} House",
+                font=ctk.CTkFont(size=18, weight="bold"),
+                text_color=self.colors['white']
+            )
+            house_label.pack(side="left", padx=20, pady=15)
+
+            points_label = ctk.CTkLabel(
+                house_frame,
+                text=f"{points} Points",
+                font=ctk.CTkFont(size=18, weight="bold"),
+                text_color=self.colors['white']
+            )
+            points_label.pack(side="right", padx=20, pady=15)
+
+    def get_total_house_points(self):
+        """Get total points for all houses across all categories"""
+        house_points = {'Ganga': 0, 'Yamuna': 0, 'Kaveri': 0, 'Krishna': 0}
+
+        connection = self.get_db_connection()
+        if not connection:
+            return house_points
+
+        try:
+            cursor = connection.cursor()
+
+            # Sum points from all individual event tables
+            for cat in range(1, 6):
+                query = f"SELECT house, SUM(points) FROM cat{cat}_individual GROUP BY house"
+                cursor.execute(query)
+                results = cursor.fetchall()
+
+                for house, points in results:
+                    if points:
+                        house_points[house] += points
+
+            cursor.close()
+            connection.close()
+
+        except Error as e:
+            messagebox.showerror("Database Error", f"Error fetching house points: {e}")
+
+        return house_points
+
+    def show_enter_data(self):
+        """Show enter data tab"""
+        self.clear_content()
+
+        # Header
+        header = ctk.CTkLabel(
+            self.content_frame,
+            text="Enter New Data",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color=self.colors['text_dark']
+        )
+        header.pack(pady=20)
+
+        # Form frame
+        form_frame = ctk.CTkFrame(self.content_frame, fg_color=self.colors['white'])
+        form_frame.pack(pady=20, padx=40, fill="both", expand=True)
+
+        # Event type selection
+        type_label = ctk.CTkLabel(form_frame, text="Event Type:", font=ctk.CTkFont(size=14, weight="bold"))
+        type_label.pack(pady=(20, 5))
+
+        self.event_type_var = ctk.StringVar(value="Individual")
+        type_menu = ctk.CTkSegmentedButton(
+            form_frame,
+            values=["Individual", "Group"],
+            variable=self.event_type_var,
+            command=self.on_event_type_change
+        )
+        type_menu.pack(pady=(0, 20))
+
+        # Form fields
+        self.create_entry_form(form_frame)
+
+    def create_entry_form(self, parent):
+        """Create the data entry form"""
+        # Name field (changes based on event type)
+        self.name_label = ctk.CTkLabel(parent, text="Student Name:", font=ctk.CTkFont(size=14, weight="bold"))
+        self.name_label.pack(pady=(10, 5))
+
+        self.name_entry = ctk.CTkEntry(parent, width=300, height=35)
+        self.name_entry.pack(pady=(0, 10))
+
+        # Class field
+        class_label = ctk.CTkLabel(parent, text="Class (1-12):", font=ctk.CTkFont(size=14, weight="bold"))
+        class_label.pack(pady=(10, 5))
+
+        self.class_entry = ctk.CTkEntry(parent, width=300, height=35)
+        self.class_entry.pack(pady=(0, 10))
+
+        # House field
+        house_label = ctk.CTkLabel(parent, text="House:", font=ctk.CTkFont(size=14, weight="bold"))
+        house_label.pack(pady=(10, 5))
+
+        self.house_var = ctk.StringVar(value="Ganga")
+        house_menu = ctk.CTkOptionMenu(
+            parent,
+            values=["Ganga", "Yamuna", "Kaveri", "Krishna"],
+            variable=self.house_var,
+            width=300,
+            height=35
+        )
+        house_menu.pack(pady=(0, 10))
+
+        # Event name field
+        event_label = ctk.CTkLabel(parent, text="Event Name:", font=ctk.CTkFont(size=14, weight="bold"))
+        event_label.pack(pady=(10, 5))
+
+        self.event_entry = ctk.CTkEntry(parent, width=300, height=35)
+        self.event_entry.pack(pady=(0, 10))
+
+        # Position field
+        position_label = ctk.CTkLabel(parent, text="Position Secured:", font=ctk.CTkFont(size=14, weight="bold"))
+        position_label.pack(pady=(10, 5))
+
+        self.position_var = ctk.StringVar(value="1")
+        position_menu = ctk.CTkOptionMenu(
+            parent,
+            values=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+            variable=self.position_var,
+            width=300,
+            height=35
+        )
+        position_menu.pack(pady=(0, 10))
+
+        # Submit button
+        submit_btn = ctk.CTkButton(
+            parent,
+            text="Add Entry",
+            command=self.add_entry,
+            width=200,
+            height=40,
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        submit_btn.pack(pady=20)
+
+    def on_event_type_change(self, value):
+        """Handle event type change"""
+        if value == "Individual":
+            self.name_label.configure(text="Student Name:")
+        else:
+            self.name_label.configure(text="Team Name:")
+
+    def add_entry(self):
+        """Add new entry to database"""
+        try:
+            # Validate inputs
+            name = self.name_entry.get().strip()
+            class_num = int(self.class_entry.get())
+            house = self.house_var.get()
+            event_name = self.event_entry.get().strip()
+            position = int(self.position_var.get())
+            event_type = self.event_type_var.get()
+
+            if not all([name, event_name]) or class_num < 1 or class_num > 12 or position < 1:
+                messagebox.showerror("Invalid Input", "Please fill all fields with valid data.")
+                return
+
+            # Determine category
+            category = self.determine_category(class_num)
+            if not category:
+                messagebox.showerror("Invalid Class", "Class must be between 1 and 12.")
+                return
+
+            # Prepare data
+            connection = self.get_db_connection()
+            if not connection:
+                return
+
+            cursor = connection.cursor()
+
+            if event_type == "Individual":
+                points = self.get_points_for_position(position)
+                table_name = f"cat{category}_individual"
+                query = f"""
+                INSERT INTO {table_name} (student_name, class_num, house, event_name, position, points)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """
+                values = (name, class_num, house, event_name, position, points)
+            else:
+                table_name = f"cat{category}_group"
+                query = f"""
+                INSERT INTO {table_name} (team_name, class_num, house, event_name, position)
+                VALUES (%s, %s, %s, %s, %s)
+                """
+                values = (name, class_num, house, event_name, position)
+
+            cursor.execute(query, values)
+            connection.commit()
+            cursor.close()
+            connection.close()
+
+            # Clear form
+            self.name_entry.delete(0, 'end')
+            self.class_entry.delete(0, 'end')
+            self.event_entry.delete(0, 'end')
+            self.position_var.set("1")  # Reset to position 1
+
+            messagebox.showinfo("Success", "Entry added successfully!")
+
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Class must be a number between 1-12.")
+        except Error as e:
+            messagebox.showerror("Database Error", f"Error adding entry: {e}")
+
+    def show_update_data(self):
+        """Show update data tab"""
+        self.clear_content()
+
+        # Header
+        header = ctk.CTkLabel(
+            self.content_frame,
+            text="Update/Delete Data",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color=self.colors['text_dark']
+        )
+        header.pack(pady=20)
+
+        # Search frame
+        search_frame = ctk.CTkFrame(self.content_frame, fg_color=self.colors['white'])
+        search_frame.pack(pady=(0, 20), padx=40, fill="x")
+
+        # Search controls
+        search_label = ctk.CTkLabel(search_frame, text="Search Records:", font=ctk.CTkFont(size=16, weight="bold"))
+        search_label.pack(pady=(15, 5))
+
+        # Category selection for search
+        cat_frame = ctk.CTkFrame(search_frame, fg_color="transparent")
+        cat_frame.pack(pady=5)
+
+        ctk.CTkLabel(cat_frame, text="Category:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left",
+                                                                                                 padx=(0, 10))
+        self.search_cat_var = ctk.StringVar(value="1")
+        cat_menu = ctk.CTkOptionMenu(
+            cat_frame,
+            values=["1", "2", "3", "4", "5"],
+            variable=self.search_cat_var,
+            width=100
+        )
+        cat_menu.pack(side="left", padx=(0, 20))
+
+        ctk.CTkLabel(cat_frame, text="Event Type:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left",
+                                                                                                   padx=(0, 10))
+        self.search_type_var = ctk.StringVar(value="Individual")
+        type_menu = ctk.CTkOptionMenu(
+            cat_frame,
+            values=["Individual", "Group"],
+            variable=self.search_type_var,
+            width=120
+        )
+        type_menu.pack(side="left")
+
+        # Search button
+        search_btn = ctk.CTkButton(
+            search_frame,
+            text="Load Records",
+            command=self.load_records,
+            width=120,
+            height=35
+        )
+        search_btn.pack(pady=15)
+
+        # Records display frame
+        self.records_frame = ctk.CTkScrollableFrame(
+            self.content_frame,
+            fg_color=self.colors['light_gray'],
+            height=300
+        )
+        self.records_frame.pack(pady=(0, 20), padx=40, fill="both", expand=True)
+
+    def show_statistics(self):
+        """Show statistics tab"""
+        self.clear_content()
+
+        # Header
+        header = ctk.CTkLabel(
+            self.content_frame,
+            text="Statistics - Leading House by Category",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color=self.colors['text_dark']
+        )
+        header.pack(pady=20)
+
+        # Get category leaders
+        category_leaders = self.get_category_leaders()
+
+        # Display leaders
+        stats_frame = ctk.CTkFrame(self.content_frame, fg_color=self.colors['white'])
+        stats_frame.pack(pady=20, padx=40, fill="both", expand=True)
+
+        for cat, (house, points) in category_leaders.items():
+            if house:  # Only show if there's data
+                leader_frame = ctk.CTkFrame(stats_frame, fg_color=self.colors['houses'][house])
+                leader_frame.pack(pady=10, padx=20, fill="x")
+
+                cat_label = ctk.CTkLabel(
+                    leader_frame,
+                    text=f"Category {cat} (Classes {self.get_class_range(cat)})",
+                    font=ctk.CTkFont(size=16, weight="bold"),
+                    text_color=self.colors['white']
+                )
+                cat_label.pack(side="left", padx=20, pady=15)
+
+                leader_label = ctk.CTkLabel(
+                    leader_frame,
+                    text=f"{house} House - {points} Points",
+                    font=ctk.CTkFont(size=16, weight="bold"),
+                    text_color=self.colors['white']
+                )
+                leader_label.pack(side="right", padx=20, pady=15)
+
+    def get_class_range(self, category):
+        """Get class range for category"""
+        ranges = {1: "1-2", 2: "3-5", 3: "6-8", 4: "9-10", 5: "11-12"}
+        return ranges.get(category, "")
+
+    def get_category_leaders(self):
+        """Get leading house in each category"""
+        leaders = {}
+
+        connection = self.get_db_connection()
+        if not connection:
+            return leaders
+
+        try:
+            cursor = connection.cursor()
+
+            for cat in range(1, 6):
+                query = f"""
+                SELECT house, SUM(points) as total_points 
+                FROM cat{cat}_individual 
+                GROUP BY house 
+                ORDER BY total_points DESC 
+                LIMIT 1
+                """
+                cursor.execute(query)
+                result = cursor.fetchone()
+
+                if result:
+                    leaders[cat] = (result[0], result[1])
+                else:
+                    leaders[cat] = (None, 0)
+
+            cursor.close()
+            connection.close()
+
+        except Error as e:
+            messagebox.showerror("Database Error", f"Error fetching statistics: {e}")
+
+        return leaders
+
+    def show_export_data(self):
+        """Show export data tab"""
+        self.clear_content()
+
+        # Header
+        header = ctk.CTkLabel(
+            self.content_frame,
+            text="Export Data",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color=self.colors['text_dark']
+        )
+        header.pack(pady=20)
+
+        # Export options
+        export_frame = ctk.CTkFrame(self.content_frame, fg_color=self.colors['white'])
+        export_frame.pack(pady=20, padx=40, fill="both", expand=True)
+
+        # Export buttons
+        export_all_btn = ctk.CTkButton(
+            export_frame,
+            text="Export All Data (CSV)",
+            command=self.export_all_data,
+            width=200,
+            height=40,
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        export_all_btn.pack(pady=20)
+
+        export_summary_btn = ctk.CTkButton(
+            export_frame,
+            text="Export House Summary (CSV)",
+            command=self.export_house_summary,
+            width=200,
+            height=40,
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        export_summary_btn.pack(pady=10)
+
+    def load_records(self):
+        """Load records based on selected category and type"""
+        # Clear existing records
+        for widget in self.records_frame.winfo_children():
+            widget.destroy()
+
+        category = self.search_cat_var.get()
+        event_type = self.search_type_var.get()
+
+        connection = self.get_db_connection()
+        if not connection:
+            return
+
+        try:
+            cursor = connection.cursor()
+
+            if event_type == "Individual":
+                table_name = f"cat{category}_individual"
+                query = f"""
+                SELECT id, student_name, class_num, house, event_name, position, points, entry_date 
+                FROM {table_name} 
+                ORDER BY entry_date DESC
+                """
+            else:
+                table_name = f"cat{category}_group"
+                query = f"""
+                SELECT id, team_name, class_num, house, event_name, position, entry_date 
+                FROM {table_name} 
+                ORDER BY entry_date DESC
+                """
+
+            cursor.execute(query)
+            records = cursor.fetchall()
+
+            if not records:
+                no_data_label = ctk.CTkLabel(
+                    self.records_frame,
+                    text=f"No records found for Category {category} - {event_type} events",
+                    font=ctk.CTkFont(size=14)
+                )
+                no_data_label.pack(pady=20)
+            else:
+                # Create header
+                header_frame = ctk.CTkFrame(self.records_frame, fg_color=self.colors['primary_blue'])
+                header_frame.pack(fill="x", pady=(0, 10), padx=5)
+
+                headers = ["Name/Team", "Class", "House", "Event", "Position"]
+                if event_type == "Individual":
+                    headers.append("Points")
+                headers.extend(["Date", "Actions"])
+
+                for i, header in enumerate(headers):
+                    header_label = ctk.CTkLabel(
+                        header_frame,
+                        text=header,
+                        font=ctk.CTkFont(size=12, weight="bold"),
+                        text_color=self.colors['white']
+                    )
+                    header_label.grid(row=0, column=i, padx=5, pady=8, sticky="w")
+
+                # Display records
+                for record in records:
+                    self.create_record_row(record, event_type)
+
+            cursor.close()
+            connection.close()
+
+        except Error as e:
+            messagebox.showerror("Database Error", f"Error loading records: {e}")
+
+    def create_record_row(self, record, event_type):
+        """Create a row for each record with edit/delete options"""
+        record_frame = ctk.CTkFrame(self.records_frame, fg_color=self.colors['white'])
+        record_frame.pack(fill="x", pady=2, padx=5)
+
+        # Extract record data
+        record_id = record[0]
+        name = record[1]
+        class_num = record[2]
+        house = record[3]
+        event_name = record[4]
+        position = record[5]
+
+        if event_type == "Individual":
+            points = record[6]
+            entry_date = record[7]
+        else:
+            entry_date = record[6]
+
+        # Display data
+        data_labels = [name, str(class_num), house, event_name, str(position)]
+        if event_type == "Individual":
+            data_labels.append(str(points))
+        data_labels.append(entry_date.strftime("%Y-%m-%d %H:%M"))
+
+        for i, text in enumerate(data_labels):
+            label = ctk.CTkLabel(
+                record_frame,
+                text=text,
+                font=ctk.CTkFont(size=11),
+                text_color=self.colors['text_dark']
+            )
+            label.grid(row=0, column=i, padx=5, pady=5, sticky="w")
+
+        # Action buttons
+        actions_frame = ctk.CTkFrame(record_frame, fg_color="transparent")
+        actions_frame.grid(row=0, column=len(data_labels), padx=5, pady=5)
+
+        edit_btn = ctk.CTkButton(
+            actions_frame,
+            text="Edit",
+            command=lambda: self.edit_record(record_id, record, event_type),
+            width=60,
+            height=25,
+            font=ctk.CTkFont(size=10)
+        )
+        edit_btn.pack(side="left", padx=2)
+
+        delete_btn = ctk.CTkButton(
+            actions_frame,
+            text="Delete",
+            command=lambda: self.delete_record(record_id, event_type),
+            width=60,
+            height=25,
+            font=ctk.CTkFont(size=10),
+            fg_color="#e74c3c",
+            hover_color="#c0392b"
+        )
+        delete_btn.pack(side="left", padx=2)
+
+    def edit_record(self, record_id, record, event_type):
+        """Open edit dialog for a record"""
+        # Create edit window
+        edit_window = ctk.CTkToplevel(self.root)
+        edit_window.title("Edit Record")
+        edit_window.geometry("400x500")
+        edit_window.resizable(False, False)
+
+        # Center the window
+        edit_window.transient(self.root)
+        edit_window.grab_set()
+
+        # Header
+        header = ctk.CTkLabel(
+            edit_window,
+            text=f"Edit {event_type} Record",
+            font=ctk.CTkFont(size=18, weight="bold")
+        )
+        header.pack(pady=20)
+
+        # Form fields
+        # Name field
+        name_label = ctk.CTkLabel(
+            edit_window,
+            text="Student Name:" if event_type == "Individual" else "Team Name:",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        name_label.pack(pady=(10, 5))
+
+        name_entry = ctk.CTkEntry(edit_window, width=300, height=35)
+        name_entry.pack(pady=(0, 10))
+        name_entry.insert(0, record[1])
+
+        # Class field
+        class_label = ctk.CTkLabel(edit_window, text="Class (1-12):", font=ctk.CTkFont(size=14, weight="bold"))
+        class_label.pack(pady=(10, 5))
+
+        class_entry = ctk.CTkEntry(edit_window, width=300, height=35)
+        class_entry.pack(pady=(0, 10))
+        class_entry.insert(0, str(record[2]))
+
+        # House field
+        house_label = ctk.CTkLabel(edit_window, text="House:", font=ctk.CTkFont(size=14, weight="bold"))
+        house_label.pack(pady=(10, 5))
+
+        house_var = ctk.StringVar(value=record[3])
+        house_menu = ctk.CTkOptionMenu(
+            edit_window,
+            values=["Ganga", "Yamuna", "Kaveri", "Krishna"],
+            variable=house_var,
+            width=300,
+            height=35
+        )
+        house_menu.pack(pady=(0, 10))
+
+        # Event name field
+        event_label = ctk.CTkLabel(edit_window, text="Event Name:", font=ctk.CTkFont(size=14, weight="bold"))
+        event_label.pack(pady=(10, 5))
+
+        event_entry = ctk.CTkEntry(edit_window, width=300, height=35)
+        event_entry.pack(pady=(0, 10))
+        event_entry.insert(0, record[4])
+
+        # Position field
+        position_label = ctk.CTkLabel(edit_window, text="Position Secured:", font=ctk.CTkFont(size=14, weight="bold"))
+        position_label.pack(pady=(10, 5))
+
+        position_var = ctk.StringVar(value=str(record[5]))
+        position_menu = ctk.CTkOptionMenu(
+            edit_window,
+            values=["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
+            variable=position_var,
+            width=300,
+            height=35
+        )
+        position_menu.pack(pady=(0, 10))
+
+        # Buttons frame
+        btn_frame = ctk.CTkFrame(edit_window, fg_color="transparent")
+        btn_frame.pack(pady=20)
+
+        # Update button
+        update_btn = ctk.CTkButton(
+            btn_frame,
+            text="Update",
+            command=lambda: self.update_record(
+                record_id, name_entry.get(), int(class_entry.get()),
+                house_var.get(), event_entry.get(), int(position_var.get()),
+                event_type, edit_window
+            ),
+            width=120,
+            height=40
+        )
+        update_btn.pack(side="left", padx=10)
+
+        # Cancel button
+        cancel_btn = ctk.CTkButton(
+            btn_frame,
+            text="Cancel",
+            command=edit_window.destroy,
+            width=120,
+            height=40,
+            fg_color="gray",
+            hover_color="darkgray"
+        )
+        cancel_btn.pack(side="left", padx=10)
+
+    def update_record(self, record_id, name, class_num, house, event_name, position, event_type, edit_window):
+        """Update record in database"""
+        try:
+            # Validate inputs
+            if not all([name.strip(), event_name.strip()]) or class_num < 1 or class_num > 12:
+                messagebox.showerror("Invalid Input", "Please fill all fields with valid data.")
+                return
+
+            # Determine category from class
+            category = self.determine_category(class_num)
+            if not category:
+                messagebox.showerror("Invalid Class", "Class must be between 1 and 12.")
+                return
+
+            connection = self.get_db_connection()
+            if not connection:
+                return
+
+            cursor = connection.cursor()
+
+            if event_type == "Individual":
+                points = self.get_points_for_position(position)
+                table_name = f"cat{category}_individual"
+                query = f"""
+                UPDATE {table_name} 
+                SET student_name=%s, class_num=%s, house=%s, event_name=%s, position=%s, points=%s 
+                WHERE id=%s
+                """
+                values = (name.strip(), class_num, house, event_name.strip(), position, points, record_id)
+            else:
+                table_name = f"cat{category}_group"
+                query = f"""
+                UPDATE {table_name} 
+                SET team_name=%s, class_num=%s, house=%s, event_name=%s, position=%s 
+                WHERE id=%s
+                """
+                values = (name.strip(), class_num, house, event_name.strip(), position, record_id)
+
+            cursor.execute(query, values)
+            connection.commit()
+            cursor.close()
+            connection.close()
+
+            messagebox.showinfo("Success", "Record updated successfully!")
+            edit_window.destroy()
+            self.load_records()  # Refresh the records display
+
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Class must be a number between 1-12.")
+        except Error as e:
+            messagebox.showerror("Database Error", f"Error updating record: {e}")
+
+    def delete_record(self, record_id, event_type):
+        """Delete record from database"""
+        result = messagebox.askyesno(
+            "Confirm Delete",
+            "Are you sure you want to delete this record?\nThis action cannot be undone."
+        )
+
+        if not result:
+            return
+
+        try:
+            category = self.search_cat_var.get()
+
+            connection = self.get_db_connection()
+            if not connection:
+                return
+
+            cursor = connection.cursor()
+
+            if event_type == "Individual":
+                table_name = f"cat{category}_individual"
+            else:
+                table_name = f"cat{category}_group"
+
+            query = f"DELETE FROM {table_name} WHERE id = %s"
+            cursor.execute(query, (record_id,))
+            connection.commit()
+            cursor.close()
+            connection.close()
+
+            messagebox.showinfo("Success", "Record deleted successfully!")
+            self.load_records()  # Refresh the records display
+
+        except Error as e:
+            messagebox.showerror("Database Error", f"Error deleting record: {e}")
+
+    def export_all_data(self):
+        """Export all data to CSV files"""
+        try:
+            # Ask user to select directory
+            export_dir = filedialog.askdirectory(title="Select Directory to Save CSV Files")
+
+            if not export_dir:
+                return
+
+            connection = self.get_db_connection()
+            if not connection:
+                return
+
+            cursor = connection.cursor()
+            exported_files = []
+
+            for cat in range(1, 6):
+                # Export Individual events
+                ind_query = f"SELECT * FROM cat{cat}_individual ORDER BY entry_date DESC"
+                cursor.execute(ind_query)
+                ind_data = cursor.fetchall()
+
+                if ind_data:
+                    ind_filename = f"{export_dir}/Cat{cat}_Individual.csv"
+                    with open(ind_filename, 'w', newline='', encoding='utf-8') as file:
+                        writer = csv.writer(file)
+                        # Write headers
+                        writer.writerow(
+                            ['ID', 'Student Name', 'Class', 'House', 'Event Name', 'Position', 'Points', 'Entry Date'])
+                        # Write data
+                        for row in ind_data:
+                            writer.writerow(row)
+                    exported_files.append(f"Cat{cat}_Individual.csv")
+
+                # Export Group events
+                grp_query = f"SELECT * FROM cat{cat}_group ORDER BY entry_date DESC"
+                cursor.execute(grp_query)
+                grp_data = cursor.fetchall()
+
+                if grp_data:
+                    grp_filename = f"{export_dir}/Cat{cat}_Group.csv"
+                    with open(grp_filename, 'w', newline='', encoding='utf-8') as file:
+                        writer = csv.writer(file)
+                        # Write headers
+                        writer.writerow(['ID', 'Team Name', 'Class', 'House', 'Event Name', 'Position', 'Entry Date'])
+                        # Write data
+                        for row in grp_data:
+                            writer.writerow(row)
+                    exported_files.append(f"Cat{cat}_Group.csv")
+
+            cursor.close()
+            connection.close()
+
+            if exported_files:
+                files_list = "\n".join(exported_files)
+                messagebox.showinfo("Success", f"Data exported successfully!\n\nFiles created:\n{files_list}")
+            else:
+                messagebox.showinfo("No Data", "No data found to export.")
+
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Error exporting data: {e}")
+
+    def export_house_summary(self):
+        """Export house summary to CSV"""
+        try:
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv")],
+                title="Save House Summary As"
+            )
+
+            if not file_path:
+                return
+
+            # Get house points and statistics
+            house_points = self.get_total_house_points()
+            category_leaders = self.get_category_leaders()
+
+            with open(file_path, 'w', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+
+                # Write total points summary
+                writer.writerow(['TOTAL HOUSE POINTS'])
+                writer.writerow(['House', 'Total Points'])
+
+                # Sort houses by points
+                sorted_houses = sorted(house_points.items(), key=lambda x: x[1], reverse=True)
+                for house, points in sorted_houses:
+                    writer.writerow([house, points])
+
+                # Add empty row
+                writer.writerow([])
+
+                # Write category leaders
+                writer.writerow(['CATEGORY LEADERS'])
+                writer.writerow(['Category', 'Class Range', 'Leading House', 'Points'])
+
+                for cat, (house, points) in category_leaders.items():
+                    if house:  # Only write if there's data
+                        class_range = self.get_class_range(cat)
+                        writer.writerow([f'Cat{cat}', class_range, house, points])
+
+            messagebox.showinfo("Success", f"House summary exported successfully to {file_path}")
+
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Error exporting summary: {e}")
+
+    def run(self):
+        """Run the application"""
+        self.root.mainloop()
+
+
+if __name__ == "__main__":
+    app = FestManagementSystem()
+    app.run()
