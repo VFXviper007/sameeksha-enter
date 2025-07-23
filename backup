@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""
+MySQL Desktop CSV Export Script
+Exports MySQL tables to CSV files on desktop and updates them periodically.
+"""
+
+import mysql.connector
+import csv
+import os
+import time
+from datetime import datetime
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+
+class MySQLDesktopExporter:
+    def __init__(self, db_config, desktop_folder_name='MySQL_CSV_Export'):
+        """
+        Initialize the MySQL desktop exporter.
+
+        Args:
+            db_config (dict): MySQL connection configuration
+            desktop_folder_name (str): Name of the folder to create on desktop
+        """
+        self.db_config = db_config
+        self.desktop_folder_name = desktop_folder_name
+
+        # Get desktop path (works on Windows, Mac, Linux)
+        self.desktop_path = self.get_desktop_path()
+        self.export_folder = os.path.join(self.desktop_path, desktop_folder_name)
+
+        # Create export folder if it doesn't exist
+        os.makedirs(self.export_folder, exist_ok=True)
+        logger.info(f"Export folder: {self.export_folder}")
+
+        # Define table configurations
+        self.tables_config = {
+            # Group tables
+            'cat1_group': {
+                'type': 'group',
+                'columns': ['event_name', 'team_name', 'class_num', 'position']
+            },
+            'cat2_group': {
+                'type': 'group',
+                'columns': ['event_name', 'team_name', 'class_num', 'position']
+            },
+            'cat3_group': {
+                'type': 'group',
+                'columns': ['event_name', 'team_name', 'class_num', 'position']
+            },
+            'cat4_group': {
+                'type': 'group',
+                'columns': ['event_name', 'team_name', 'class_num', 'position']
+            },
+            'cat5_group': {
+                'type': 'group',
+                'columns': ['event_name', 'team_name', 'class_num', 'position']
+            },
+
+            # Individual tables
+            'cat1_individual': {
+                'type': 'individual',
+                'columns': ['event_name', 'student_name', 'class_num', 'house', 'position']
+            },
+            'cat2_individual': {
+                'type': 'individual',
+                'columns': ['event_name', 'student_name', 'class_num', 'house', 'position']
+            },
+            'cat3_individual': {
+                'type': 'individual',
+                'columns': ['event_name', 'student_name', 'class_num', 'house', 'position']
+            },
+            'cat4_individual': {
+                'type': 'individual',
+                'columns': ['event_name', 'student_name', 'class_num', 'house', 'position']
+            },
+            'cat5_individual': {
+                'type': 'individual',
+                'columns': ['event_name', 'student_name', 'class_num', 'house', 'position']
+            },
+        }
+
+    def get_desktop_path(self):
+        """Get the desktop path for the current operating system."""
+        try:
+            # Try to get desktop path
+            if os.name == 'nt':  # Windows
+                desktop = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop')
+            else:  # macOS and Linux
+                desktop = os.path.join(os.path.join(os.path.expanduser('~')), 'Desktop')
+
+            # Check if desktop path exists
+            if os.path.exists(desktop):
+                return desktop
+            else:
+                # Fallback to home directory if Desktop doesn't exist
+                logger.warning("Desktop folder not found, using home directory")
+                return os.path.expanduser('~')
+
+        except Exception as e:
+            logger.error(f"Error getting desktop path: {e}")
+            # Ultimate fallback to current directory
+            return os.getcwd()
+
+    def connect_database(self):
+        """Establish MySQL database connection."""
+        try:
+            connection = mysql.connector.connect(**self.db_config)
+            logger.info("Database connection established successfully")
+            return connection
+        except mysql.connector.Error as e:
+            logger.error(f"Database connection failed: {e}")
+            raise
+
+    def export_table_to_csv(self, connection, table_name, table_config):
+        """
+        Export a single table to CSV file.
+
+        Args:
+            connection: MySQL connection object
+            table_name (str): Name of the table to export
+            table_config (dict): Table configuration with columns
+
+        Returns:
+            str: Path to the exported CSV file
+        """
+        csv_file_path = os.path.join(self.export_folder, f"{table_name}.csv")
+
+        try:
+            cursor = connection.cursor()
+
+            # Build SELECT query with specified columns
+            columns = table_config['columns']
+            query = f"SELECT {', '.join(columns)} FROM {table_name}"
+
+            cursor.execute(query)
+            results = cursor.fetchall()
+
+            # Write to CSV file (overwrite existing)
+            with open(csv_file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+
+                # Write header
+                writer.writerow(columns)
+
+                # Write data rows
+                writer.writerows(results)
+
+            cursor.close()
+            logger.info(f"Exported {table_name} → {os.path.basename(csv_file_path)} ({len(results)} rows)")
+            return csv_file_path
+
+        except mysql.connector.Error as e:
+            logger.error(f"Failed to export table {table_name}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error exporting {table_name}: {e}")
+            raise
+
+    def export_all_tables(self):
+        """Export all configured tables to CSV files."""
+        connection = None
+        exported_files = []
+
+        try:
+            connection = self.connect_database()
+
+            for table_name, table_config in self.tables_config.items():
+                try:
+                    csv_file = self.export_table_to_csv(connection, table_name, table_config)
+                    exported_files.append(csv_file)
+                except Exception as e:
+                    logger.error(f"Failed to export {table_name}: {e}")
+                    # Continue with other tables even if one fails
+                    continue
+
+            return exported_files
+
+        finally:
+            if connection and connection.is_connected():
+                connection.close()
+                logger.info("Database connection closed")
+
+    def export_once(self):
+        """Run a single export of all tables."""
+        try:
+            logger.info("Starting single export...")
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            logger.info(f"Export started at: {timestamp}")
+
+            exported_files = self.export_all_tables()
+
+            if exported_files:
+                logger.info(f"✅ Successfully exported {len(exported_files)} tables")
+                logger.info(f"📁 Files saved to: {self.export_folder}")
+
+                # List all exported files
+                for file_path in exported_files:
+                    filename = os.path.basename(file_path)
+                    logger.info(f"   → {filename}")
+            else:
+                logger.warning("❌ No files were exported successfully")
+
+        except Exception as e:
+            logger.error(f"Export failed: {e}")
+            raise
+
+    def run_periodic(self, interval_minutes=10):
+        """Run the export process periodically at specified intervals."""
+        interval_seconds = interval_minutes * 60
+        logger.info(f"🔄 Starting periodic export every {interval_minutes} minutes...")
+        logger.info(f"📁 Export folder: {self.export_folder}")
+        logger.info("Press Ctrl+C to stop")
+
+        # Run initial export
+        self.export_once()
+
+        while True:
+            try:
+                logger.info(f"⏰ Sleeping for {interval_minutes} minutes...")
+                time.sleep(interval_seconds)
+
+                logger.info("🔄 Starting periodic export...")
+                self.export_once()
+
+            except KeyboardInterrupt:
+                logger.info("🛑 Export process interrupted by user")
+                break
+            except Exception as e:
+                logger.error(f"❌ Export process error: {e}")
+                logger.info(f"⏳ Waiting {interval_minutes} minutes before retry...")
+                time.sleep(interval_seconds)
+
+
+def main():
+    """Main function to configure and run the export process."""
+
+    print("=" * 60)
+    print("🗄️  MySQL Desktop CSV Exporter")
+    print("=" * 60)
+
+    # MySQL database configuration
+    # Replace these values with your actual database credentials
+    db_config = {
+        'host': 'localhost',  # Your MySQL host
+        'user': 'root',  # Your MySQL username
+        'password': 'root',  # Your MySQL password
+        'database': 'cultural_fest',  # Your MySQL database name
+        'charset': 'utf8mb4',
+        'collation': 'utf8mb4_unicode_ci'
+    }
+
+    try:
+        # Initialize the exporter
+        exporter = MySQLDesktopExporter(db_config, desktop_folder_name='Sameeksha_CSV_Data')
+
+        # Run periodic export every 10 minutes
+        exporter.run_periodic(interval_minutes=10)
+
+    except Exception as e:
+        logger.error(f"❌ Application failed: {e}")
+        print(f"\n❌ Error: {e}")
+        print("\n💡 Make sure to update the database configuration in the script!")
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    exit(main())
