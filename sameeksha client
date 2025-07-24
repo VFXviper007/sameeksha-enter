@@ -5,16 +5,22 @@ import tkinter.messagebox as messagebox
 from datetime import datetime
 import csv
 from tkinter import filedialog
-
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import matplotlib.dates as mdates
+from collections import defaultdict
+import pandas as pd
 # Set appearance mode and color theme
-ctk.set_appearance_mode("light")
-ctk.set_default_color_theme("blue")
+
 
 
 class FestManagementSystem:
     def __init__(self):
         self.root = ctk.CTk()
         self.root.title("Sameeksha")
+        self.is_dark_mode = False
+        ctk.set_appearance_mode("light")
+        ctk.set_default_color_theme("blue")
 
         # Get screen dimensions and scale window
         screen_width = self.root.winfo_screenwidth()
@@ -169,11 +175,23 @@ class FestManagementSystem:
         # Title
         title_label = ctk.CTkLabel(
             self.sidebar,
-            text="Cultural Fest\nManagement",
+            text="Sameeksha",
             font=ctk.CTkFont(size=18, weight="bold"),
             text_color=self.colors['white']
         )
         title_label.pack(pady=(20, 30))
+
+        # Dark mode toggle
+        self.dark_mode_var = ctk.BooleanVar(value=self.is_dark_mode)
+        dark_mode_switch = ctk.CTkSwitch(
+            self.sidebar,
+            text="Dark Mode",
+            variable=self.dark_mode_var,
+            command=self.toggle_dark_mode,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=self.colors['white']
+        )
+
 
         # Navigation buttons
         self.nav_buttons = {}
@@ -200,6 +218,42 @@ class FestManagementSystem:
             btn.pack(pady=5)
             self.nav_buttons[text] = btn
 
+    def toggle_dark_mode(self):
+        """Toggle between dark and light mode"""
+        self.is_dark_mode = self.dark_mode_var.get()
+
+        if self.is_dark_mode:
+            ctk.set_appearance_mode("dark")
+            # Update colors for dark mode
+            self.colors.update({
+                'light_gray': '#2b2b2b',
+                'white': '#1a1a1a',
+                'text_dark': '#ffffff'
+            })
+        else:
+            ctk.set_appearance_mode("light")
+            # Restore light mode colors
+            self.colors.update({
+                'light_gray': '#f8f9fa',
+                'white': '#ffffff',
+                'text_dark': '#2c3e50'
+            })
+
+        # Refresh current view
+        current_view = getattr(self, '_current_view', 'home')
+        if current_view == 'home':
+            self.show_home()
+        elif current_view == 'enter_data':
+            self.show_enter_data()
+        elif current_view == 'update_data':
+            self.show_update_data()
+        elif current_view == 'statistics':
+            self.show_statistics()
+        elif current_view == 'export_data':
+            self.show_export_data()
+
+
+
     def clear_content(self):
         """Clear content frame"""
         for widget in self.content_frame.winfo_children():
@@ -207,6 +261,8 @@ class FestManagementSystem:
 
     def show_home(self):
         """Show home tab with house total points"""
+
+        self._current_view = 'home'  # ADD THIS LINE
         self.clear_content()
 
         # Header
@@ -279,6 +335,7 @@ class FestManagementSystem:
 
     def show_enter_data(self):
         """Show enter data tab"""
+        self._current_view = 'enter_data'  # ADD THIS LINE
         self.clear_content()
 
         # Header
@@ -443,6 +500,7 @@ class FestManagementSystem:
 
     def show_update_data(self):
         """Show update data tab"""
+        self._current_view = 'update_data'
         self.clear_content()
 
         # Header
@@ -462,41 +520,78 @@ class FestManagementSystem:
         search_label = ctk.CTkLabel(search_frame, text="Search Records:", font=ctk.CTkFont(size=16, weight="bold"))
         search_label.pack(pady=(15, 5))
 
-        # Category selection for search
-        cat_frame = ctk.CTkFrame(search_frame, fg_color="transparent")
-        cat_frame.pack(pady=5)
+        # Category and Type selection
+        cat_type_frame = ctk.CTkFrame(search_frame, fg_color="transparent")
+        cat_type_frame.pack(pady=5)
 
-        ctk.CTkLabel(cat_frame, text="Category:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left",
-                                                                                                 padx=(0, 10))
+        ctk.CTkLabel(cat_type_frame, text="Category:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left",
+                                                                                                      padx=(0, 10))
         self.search_cat_var = ctk.StringVar(value="1")
         cat_menu = ctk.CTkOptionMenu(
-            cat_frame,
+            cat_type_frame,
             values=["1", "2", "3", "4", "5"],
             variable=self.search_cat_var,
             width=100
         )
         cat_menu.pack(side="left", padx=(0, 20))
 
-        ctk.CTkLabel(cat_frame, text="Event Type:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left",
-                                                                                                   padx=(0, 10))
+        ctk.CTkLabel(cat_type_frame, text="Event Type:", font=ctk.CTkFont(size=14, weight="bold")).pack(side="left",
+                                                                                                        padx=(0, 10))
         self.search_type_var = ctk.StringVar(value="Individual")
         type_menu = ctk.CTkOptionMenu(
-            cat_frame,
+            cat_type_frame,
             values=["Individual", "Group"],
             variable=self.search_type_var,
             width=120
         )
         type_menu.pack(side="left")
 
+        # Event filter
+        event_filter_frame = ctk.CTkFrame(search_frame, fg_color="transparent")
+        event_filter_frame.pack(pady=5)
+
+        ctk.CTkLabel(event_filter_frame, text="Filter by Event:", font=ctk.CTkFont(size=14, weight="bold")).pack(
+            side="left", padx=(0, 10))
+        self.event_filter_entry = ctk.CTkEntry(event_filter_frame, width=200,
+                                               placeholder_text="Enter event name (optional)")
+        self.event_filter_entry.pack(side="left", padx=(0, 20))
+
+        # Clear filter button
+        clear_filter_btn = ctk.CTkButton(
+            event_filter_frame,
+            text="Clear Filter",
+            command=self.clear_event_filter,
+            width=100,
+            height=30,
+            font=ctk.CTkFont(size=12)
+        )
+        clear_filter_btn.pack(side="left")
+
+        # Buttons frame
+        buttons_frame = ctk.CTkFrame(search_frame, fg_color="transparent")
+        buttons_frame.pack(pady=15)
+
         # Search button
         search_btn = ctk.CTkButton(
-            search_frame,
+            buttons_frame,
             text="Load Records",
             command=self.load_records,
             width=120,
             height=35
         )
-        search_btn.pack(pady=15)
+        search_btn.pack(side="left", padx=10)
+
+        # Delete all button
+        delete_all_btn = ctk.CTkButton(
+            buttons_frame,
+            text="Delete All Data",
+            command=self.delete_all_data,
+            width=120,
+            height=35,
+            fg_color="#e74c3c",
+            hover_color="#c0392b"
+        )
+        delete_all_btn.pack(side="left", padx=10)
 
         # Records display frame
         self.records_frame = ctk.CTkScrollableFrame(
@@ -506,46 +601,545 @@ class FestManagementSystem:
         )
         self.records_frame.pack(pady=(0, 20), padx=40, fill="both", expand=True)
 
+    def clear_event_filter(self):
+        """Clear the event filter"""
+        self.event_filter_entry.delete(0, 'end')
+        self.load_records()
+
+    def delete_all_data(self):
+        """Delete all data from all tables"""
+        result = messagebox.askyesno(
+            "Confirm Delete All",
+            "Are you sure you want to delete ALL data from ALL categories?\n\n"
+            "This will permanently delete:\n"
+            "• All Individual event records\n"
+            "• All Group event records\n"
+            "• From all categories (1-5)\n\n"
+            "This action CANNOT be undone!"
+        )
+
+        if not result:
+            return
+
+        # Double confirmation
+        confirm_result = messagebox.askyesno(
+            "Final Confirmation",
+            "This is your FINAL WARNING!\n\n"
+            "Are you absolutely sure you want to delete ALL data?\n"
+            "Type 'DELETE' in the next dialog to confirm."
+        )
+
+        if not confirm_result:
+            return
+
+        # Ask user to type DELETE
+        from tkinter import simpledialog
+        confirmation_text = simpledialog.askstring(
+            "Type DELETE to Confirm",
+            "Type 'DELETE' (in capital letters) to confirm deletion of all data:",
+            parent=self.root
+        )
+
+        if confirmation_text != "DELETE":
+            messagebox.showinfo("Cancelled", "Data deletion cancelled.")
+            return
+
+        try:
+            connection = self.get_db_connection()
+            if not connection:
+                return
+
+            cursor = connection.cursor()
+
+            # Delete from all tables
+            tables_cleared = []
+            for cat in range(1, 6):
+                # Clear individual table
+                ind_table = f"cat{cat}_individual"
+                cursor.execute(f"DELETE FROM {ind_table}")
+                if cursor.rowcount > 0:
+                    tables_cleared.append(f"{ind_table} ({cursor.rowcount} records)")
+
+                # Clear group table
+                grp_table = f"cat{cat}_group"
+                cursor.execute(f"DELETE FROM {grp_table}")
+                if cursor.rowcount > 0:
+                    tables_cleared.append(f"{grp_table} ({cursor.rowcount} records)")
+
+            connection.commit()
+            cursor.close()
+            connection.close()
+
+            if tables_cleared:
+                cleared_info = "\n".join(tables_cleared)
+                messagebox.showinfo("Success", f"All data deleted successfully!\n\nCleared:\n{cleared_info}")
+            else:
+                messagebox.showinfo("No Data", "No data was found to delete.")
+
+            # Refresh the records display
+            self.load_records()
+
+        except Error as e:
+            messagebox.showerror("Database Error", f"Error deleting data: {e}")
+
     def show_statistics(self):
-        """Show statistics tab"""
+        """Show enhanced statistics tab with graphs"""
+        self._current_view = 'statistics'
         self.clear_content()
 
         # Header
         header = ctk.CTkLabel(
             self.content_frame,
-            text="Statistics - Leading House by Category",
+            text="Statistics Dashboard",
             font=ctk.CTkFont(size=24, weight="bold"),
             text_color=self.colors['text_dark']
         )
         header.pack(pady=20)
 
-        # Get category leaders
-        category_leaders = self.get_category_leaders()
+        # Create scrollable frame for all content
+        stats_scroll = ctk.CTkScrollableFrame(
+            self.content_frame,
+            fg_color=self.colors['light_gray']
+        )
+        stats_scroll.pack(fill="both", expand=True, padx=20, pady=(0, 20))
 
-        # Display leaders
-        stats_frame = ctk.CTkFrame(self.content_frame, fg_color=self.colors['white'])
-        stats_frame.pack(pady=20, padx=40, fill="both", expand=True)
+        # 1. House Points Over Time Graph
+        self.create_house_points_timeline(stats_scroll)
 
-        for cat, (house, points) in category_leaders.items():
-            if house:  # Only show if there's data
-                leader_frame = ctk.CTkFrame(stats_frame, fg_color=self.colors['houses'][house])
-                leader_frame.pack(pady=10, padx=20, fill="x")
+        # 2. Current House Standings
+        self.create_house_standings_chart(stats_scroll)
 
-                cat_label = ctk.CTkLabel(
-                    leader_frame,
-                    text=f"Category {cat} (Classes {self.get_class_range(cat)})",
-                    font=ctk.CTkFont(size=16, weight="bold"),
-                    text_color=self.colors['white']
-                )
-                cat_label.pack(side="left", padx=20, pady=15)
+        # 3. Best Performers by Category
+        self.create_best_performers_chart(stats_scroll)
 
-                leader_label = ctk.CTkLabel(
-                    leader_frame,
-                    text=f"{house} House - {points} Points",
-                    font=ctk.CTkFont(size=16, weight="bold"),
-                    text_color=self.colors['white']
-                )
-                leader_label.pack(side="right", padx=20, pady=15)
+        # 4. Event Participation Statistics
+        self.create_participation_stats(stats_scroll)
+
+    def create_house_points_timeline(self, parent):
+        """Create house points over time line graph"""
+        # Section header
+        timeline_header = ctk.CTkLabel(
+            parent,
+            text="House Points Over Time",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=self.colors['text_dark']
+        )
+        timeline_header.pack(pady=(20, 10))
+
+        # Get timeline data
+        timeline_data = self.get_house_points_timeline()
+
+        if not timeline_data:
+            no_data_label = ctk.CTkLabel(
+                parent,
+                text="No data available for timeline",
+                font=ctk.CTkFont(size=14),
+                text_color=self.colors['text_dark']
+            )
+            no_data_label.pack(pady=20)
+            return
+
+        # Create matplotlib figure
+        fig, ax = plt.subplots(figsize=(14, 6))  # Made it slightly wider for better date display
+
+        # Set colors based on current theme
+        if self.is_dark_mode:
+            fig.patch.set_facecolor('#2b2b2b')
+            ax.set_facecolor('#2b2b2b')
+            text_color = 'white'
+        else:
+            fig.patch.set_facecolor('white')
+            ax.set_facecolor('white')
+            text_color = 'black'
+
+        # Plot lines for each house
+        for house in ['Ganga', 'Yamuna', 'Kaveri', 'Krishna']:
+            if house in timeline_data:
+                dates = [item[0] for item in timeline_data[house]]
+                points = [item[1] for item in timeline_data[house]]
+                ax.plot(dates, points, marker='o', linewidth=3, markersize=6,
+                        label=house, color=self.colors['houses'][house])
+
+        ax.set_xlabel('Date and Time', color=text_color, fontsize=12, fontweight='bold')
+        ax.set_ylabel('Cumulative Points', color=text_color, fontsize=12, fontweight='bold')
+        ax.set_title('House Points Progression Over Time', color=text_color, fontsize=16, fontweight='bold')
+        ax.legend(fontsize=11, framealpha=0.9)
+        ax.grid(True, alpha=0.3, linestyle='--')
+
+        # Format x-axis to show date:hour:minute
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
+
+        # Set intelligent tick spacing based on data range
+        if timeline_data:
+            # Get the time span of the data
+            all_dates = []
+            for house_data in timeline_data.values():
+                all_dates.extend([item[0] for item in house_data])
+
+            if all_dates:
+                time_span = max(all_dates) - min(all_dates)
+
+                # Choose appropriate interval based on time span
+                if time_span.days > 7:  # More than a week
+                    ax.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+                    ax.xaxis.set_minor_locator(mdates.HourLocator(interval=6))
+                elif time_span.days > 1:  # More than a day
+                    ax.xaxis.set_major_locator(mdates.HourLocator(interval=6))
+                    ax.xaxis.set_minor_locator(mdates.HourLocator(interval=1))
+                else:  # Within a day
+                    ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+                    ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=30))
+
+        ax.tick_params(colors=text_color, labelsize=10)
+
+        # Rotate x-axis labels for better readability
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+
+        # Embed in tkinter
+        canvas_frame = ctk.CTkFrame(parent, fg_color=self.colors['white'])
+        canvas_frame.pack(pady=10, padx=20, fill="x")
+
+        canvas = FigureCanvasTkAgg(fig, canvas_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+    def get_house_points_timeline(self):
+        """Get house points progression over time"""
+        timeline_data = defaultdict(list)
+
+        connection = self.get_db_connection()
+        if not connection:
+            return timeline_data
+
+        try:
+            cursor = connection.cursor()
+
+            # Get all individual events ordered by date
+            all_events = []
+            for cat in range(1, 6):
+                query = f"""
+                SELECT house, points, entry_date 
+                FROM cat{cat}_individual 
+                ORDER BY entry_date ASC
+                """
+                cursor.execute(query)
+                events = cursor.fetchall()
+                all_events.extend(events)
+
+            # Sort all events by date
+            all_events.sort(key=lambda x: x[2])
+
+            # Calculate cumulative points
+            house_totals = {'Ganga': 0, 'Yamuna': 0, 'Kaveri': 0, 'Krishna': 0}
+
+            for house, points, date in all_events:
+                house_totals[house] += points
+                timeline_data[house].append((date, house_totals[house]))
+
+            cursor.close()
+            connection.close()
+
+        except Error as e:
+            print(f"Error getting timeline data: {e}")
+
+        return dict(timeline_data)
+
+    def get_best_performers(self):
+        """Get best individual performers by category"""
+        performers = defaultdict(list)
+
+        connection = self.get_db_connection()
+        if not connection:
+            return performers
+
+        try:
+            cursor = connection.cursor()
+
+            for cat in range(1, 6):
+                query = f"""
+                SELECT student_name, house, SUM(points) as total_points, COUNT(*) as event_count
+                FROM cat{cat}_individual 
+                GROUP BY student_name, house 
+                ORDER BY total_points DESC, event_count DESC
+                LIMIT 5
+                """
+                cursor.execute(query)
+                results = cursor.fetchall()
+
+                for name, house, points, event_count in results:
+                    performers[cat].append({
+                        'name': name,
+                        'house': house,
+                        'points': float(points),
+                        'event_count': event_count
+                    })
+
+            cursor.close()
+            connection.close()
+
+        except Error as e:
+            print(f"Error getting best performers: {e}")
+
+        return dict(performers)
+
+    def get_participation_stats(self):
+        """Get participation statistics"""
+        stats = {
+            'category_events': defaultdict(int),
+            'house_participation': defaultdict(int)
+        }
+
+        connection = self.get_db_connection()
+        if not connection:
+            return stats
+
+        try:
+            cursor = connection.cursor()
+
+            for cat in range(1, 6):
+                # Count individual events
+                cursor.execute(f"SELECT COUNT(*) FROM cat{cat}_individual")
+                ind_count = cursor.fetchone()[0]
+
+                # Count group events
+                cursor.execute(f"SELECT COUNT(*) FROM cat{cat}_group")
+                grp_count = cursor.fetchone()[0]
+
+                stats['category_events'][cat] = ind_count + grp_count
+
+                # Count house participations
+                cursor.execute(f"SELECT house, COUNT(*) FROM cat{cat}_individual GROUP BY house")
+                ind_house_counts = cursor.fetchall()
+
+                cursor.execute(f"SELECT house, COUNT(*) FROM cat{cat}_group GROUP BY house")
+                grp_house_counts = cursor.fetchall()
+
+                for house, count in ind_house_counts:
+                    stats['house_participation'][house] += count
+
+                for house, count in grp_house_counts:
+                    stats['house_participation'][house] += count
+
+            cursor.close()
+            connection.close()
+
+        except Error as e:
+            print(f"Error getting participation stats: {e}")
+
+        return stats
+
+    def create_house_standings_chart(self, parent):
+        """Create current house standings bar chart"""
+        # Section header
+        standings_header = ctk.CTkLabel(
+            parent,
+            text="Current House Standings",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=self.colors['text_dark']
+        )
+        standings_header.pack(pady=(30, 10))
+
+        # Get house points
+        house_points = self.get_total_house_points()
+
+        # Create matplotlib figure
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        # Set colors based on current theme
+        if self.is_dark_mode:
+            fig.patch.set_facecolor('#2b2b2b')
+            ax.set_facecolor('#2b2b2b')
+            text_color = 'white'
+        else:
+            fig.patch.set_facecolor('white')
+            ax.set_facecolor('white')
+            text_color = 'black'
+
+        # Sort houses by points
+        sorted_houses = sorted(house_points.items(), key=lambda x: x[1], reverse=True)
+        houses = [item[0] for item in sorted_houses]
+        points = [item[1] for item in sorted_houses]
+        colors = [self.colors['houses'][house] for house in houses]
+
+        # Create bar chart
+        bars = ax.bar(houses, points, color=colors, alpha=0.8, edgecolor='black', linewidth=1)
+
+        # Add value labels on bars
+        for bar, point in zip(bars, points):
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width() / 2., height + 0.5,
+                    f'{point}', ha='center', va='bottom', color=text_color, fontweight='bold')
+
+        ax.set_xlabel('Houses', color=text_color)
+        ax.set_ylabel('Total Points', color=text_color)
+        ax.set_title('Current House Standings', color=text_color, fontsize=14, fontweight='bold')
+        ax.tick_params(colors=text_color)
+        ax.grid(axis='y', alpha=0.3)
+
+        plt.tight_layout()
+
+        # Embed in tkinter
+        canvas_frame = ctk.CTkFrame(parent, fg_color=self.colors['white'])
+        canvas_frame.pack(pady=10, padx=20, fill="x")
+
+        canvas = FigureCanvasTkAgg(fig, canvas_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+
+    def create_best_performers_chart(self, parent):
+        """Create best performers chart by category"""
+        # Section header
+        performers_header = ctk.CTkLabel(
+            parent,
+            text="Best Individual Performers by Category",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=self.colors['text_dark']
+        )
+        performers_header.pack(pady=(30, 10))
+
+        # Get best performers data
+        best_performers = self.get_best_performers()
+
+        if not best_performers:
+            no_data_label = ctk.CTkLabel(
+                parent,
+                text="No individual performance data available",
+                font=ctk.CTkFont(size=14),
+                text_color=self.colors['text_dark']
+            )
+            no_data_label.pack(pady=20)
+            return
+
+        # Create matplotlib figure
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        # Set colors based on current theme
+        if self.is_dark_mode:
+            fig.patch.set_facecolor('#2b2b2b')
+            ax.set_facecolor('#2b2b2b')
+            text_color = 'white'
+        else:
+            fig.patch.set_facecolor('white')
+            ax.set_facecolor('white')
+            text_color = 'black'
+
+        # Prepare data for horizontal bar chart
+        categories = []
+        names = []
+        points_list = []
+        colors_list = []
+
+        for cat, performers in best_performers.items():
+            for performer in performers[:3]:  # Top 3 per category
+                categories.append(f"Cat {cat}")
+                names.append(f"{performer['name']} ({performer['house']})")
+                points_list.append(performer['points'])
+                colors_list.append(self.colors['houses'][performer['house']])
+
+        if categories:
+            # Create horizontal bar chart
+            y_pos = range(len(names))
+            bars = ax.barh(y_pos, points_list, color=colors_list, alpha=0.8, edgecolor='black')
+
+            # Add value labels
+            for i, (bar, points) in enumerate(zip(bars, points_list)):
+                ax.text(points + 0.1, bar.get_y() + bar.get_height() / 2,
+                        f'{points}', ha='left', va='center', color=text_color, fontweight='bold')
+
+            ax.set_yticks(y_pos)
+            ax.set_yticklabels([f"{cat}\n{name}" for cat, name in zip(categories, names)])
+            ax.set_xlabel('Total Points', color=text_color)
+            ax.set_title('Top Individual Performers by Category', color=text_color, fontsize=14, fontweight='bold')
+            ax.tick_params(colors=text_color)
+            ax.grid(axis='x', alpha=0.3)
+
+        plt.tight_layout()
+
+        # Embed in tkinter
+        canvas_frame = ctk.CTkFrame(parent, fg_color=self.colors['white'])
+        canvas_frame.pack(pady=10, padx=20, fill="x")
+
+        canvas = FigureCanvasTkAgg(fig, canvas_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+
+    def create_participation_stats(self, parent):
+        """Create event participation statistics"""
+        # Section header
+        participation_header = ctk.CTkLabel(
+            parent,
+            text="Event Participation Statistics",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=self.colors['text_dark']
+        )
+        participation_header.pack(pady=(30, 10))
+
+        # Get participation data
+        participation_data = self.get_participation_stats()
+
+        if not participation_data:
+            no_data_label = ctk.CTkLabel(
+                parent,
+                text="No participation data available",
+                font=ctk.CTkFont(size=14),
+                text_color=self.colors['text_dark']
+            )
+            no_data_label.pack(pady=20)
+            return
+
+        # Create subplot with 2 charts
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+        # Set colors based on current theme
+        if self.is_dark_mode:
+            fig.patch.set_facecolor('#2b2b2b')
+            for ax in [ax1, ax2]:
+                ax.set_facecolor('#2b2b2b')
+            text_color = 'white'
+        else:
+            fig.patch.set_facecolor('white')
+            for ax in [ax1, ax2]:
+                ax.set_facecolor('white')
+            text_color = 'black'
+
+        # Chart 1: Events by Category
+        if 'category_events' in participation_data:
+            categories = list(participation_data['category_events'].keys())
+            event_counts = list(participation_data['category_events'].values())
+
+            ax1.pie(event_counts, labels=[f'Cat {cat}' for cat in categories],
+                    autopct='%1.1f%%', startangle=90, colors=plt.cm.Set3.colors)
+            ax1.set_title('Events Distribution by Category', color=text_color, fontweight='bold')
+
+        # Chart 2: House Participation
+        if 'house_participation' in participation_data:
+            houses = list(participation_data['house_participation'].keys())
+            participations = list(participation_data['house_participation'].values())
+            colors = [self.colors['houses'][house] for house in houses]
+
+            bars = ax2.bar(houses, participations, color=colors, alpha=0.8, edgecolor='black')
+
+            # Add value labels
+            for bar, participation in zip(bars, participations):
+                height = bar.get_height()
+                ax2.text(bar.get_x() + bar.get_width() / 2., height + 0.5,
+                         f'{participation}', ha='center', va='bottom', color=text_color, fontweight='bold')
+
+            ax2.set_xlabel('Houses', color=text_color)
+            ax2.set_ylabel('Total Participations', color=text_color)
+            ax2.set_title('House Participation Count', color=text_color, fontweight='bold')
+            ax2.tick_params(colors=text_color)
+            ax2.grid(axis='y', alpha=0.3)
+
+        plt.tight_layout()
+
+        # Embed in tkinter
+        canvas_frame = ctk.CTkFrame(parent, fg_color=self.colors['white'])
+        canvas_frame.pack(pady=10, padx=20, fill="x")
+
+        canvas = FigureCanvasTkAgg(fig, canvas_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
 
     def get_class_range(self, category):
         """Get class range for category"""
@@ -589,6 +1183,7 @@ class FestManagementSystem:
 
     def show_export_data(self):
         """Show export data tab"""
+        self._current_view = 'export_data'  # ADD THIS LINE
         self.clear_content()
 
         # Header
@@ -626,13 +1221,14 @@ class FestManagementSystem:
         export_summary_btn.pack(pady=10)
 
     def load_records(self):
-        """Load records based on selected category and type"""
+        """Load records based on selected category, type, and event filter"""
         # Clear existing records
         for widget in self.records_frame.winfo_children():
             widget.destroy()
 
         category = self.search_cat_var.get()
         event_type = self.search_type_var.get()
+        event_filter = self.event_filter_entry.get().strip()
 
         connection = self.get_db_connection()
         if not connection:
@@ -643,26 +1239,32 @@ class FestManagementSystem:
 
             if event_type == "Individual":
                 table_name = f"cat{category}_individual"
-                query = f"""
+                base_query = f"""
                 SELECT id, student_name, class_num, house, event_name, position, points, entry_date 
-                FROM {table_name} 
-                ORDER BY entry_date DESC
+                FROM {table_name}
                 """
             else:
                 table_name = f"cat{category}_group"
-                query = f"""
+                base_query = f"""
                 SELECT id, team_name, class_num, house, event_name, position, entry_date 
-                FROM {table_name} 
-                ORDER BY entry_date DESC
+                FROM {table_name}
                 """
 
-            cursor.execute(query)
+            # Add event filter if provided
+            if event_filter:
+                query = base_query + " WHERE event_name LIKE %s ORDER BY entry_date DESC"
+                cursor.execute(query, (f"%{event_filter}%",))
+            else:
+                query = base_query + " ORDER BY entry_date DESC"
+                cursor.execute(query)
+
             records = cursor.fetchall()
 
             if not records:
+                filter_text = f" matching '{event_filter}'" if event_filter else ""
                 no_data_label = ctk.CTkLabel(
                     self.records_frame,
-                    text=f"No records found for Category {category} - {event_type} events",
+                    text=f"No records found for Category {category} - {event_type} events{filter_text}",
                     font=ctk.CTkFont(size=14)
                 )
                 no_data_label.pack(pady=20)
@@ -694,7 +1296,6 @@ class FestManagementSystem:
 
         except Error as e:
             messagebox.showerror("Database Error", f"Error loading records: {e}")
-
     def create_record_row(self, record, event_type):
         """Create a row for each record with edit/delete options"""
         record_frame = ctk.CTkFrame(self.records_frame, fg_color=self.colors['white'])
