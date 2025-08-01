@@ -1,0 +1,263 @@
+import mysql.connector
+from mysql.connector import Error
+import sys
+from datetime import datetime
+
+
+class CategoryFixMigration:
+    def __init__(self):
+        # Database configuration - UPDATE THESE TO MATCH YOUR SETTINGS
+        self.db_config = {
+            'host': 'localhost',
+            'user': 'root',
+            'password': 'root',
+            'database': 'cultural_fest'
+        }
+
+    def get_db_connection(self):
+        """Get database connection"""
+        try:
+            connection = mysql.connector.connect(**self.db_config)
+            return connection
+        except Error as e:
+            print(f"❌ Error connecting to database: {e}")
+            return None
+
+    def backup_class8_data(self):
+        """Create backup of class 8 data before migration"""
+        connection = self.get_db_connection()
+        if not connection:
+            return False
+
+        try:
+            cursor = connection.cursor()
+
+            print("📦 Creating backup of Class 8 data...")
+
+            # Check if class 8 data exists in category 3
+            cursor.execute("SELECT COUNT(*) FROM cat3_individual WHERE class_num = 8")
+            ind_count = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM cat3_group WHERE class_num = 8")
+            grp_count = cursor.fetchone()[0]
+
+            if ind_count == 0 and grp_count == 0:
+                print("ℹ️  No Class 8 data found in Category 3. Migration may not be needed.")
+                return True
+
+            print(f"   Found {ind_count} individual records and {grp_count} group records for Class 8")
+
+            # Create backup tables with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            backup_queries = [
+                f"""
+                CREATE TABLE IF NOT EXISTS backup_cat3_individual_class8_{timestamp} AS 
+                SELECT * FROM cat3_individual WHERE class_num = 8
+                """,
+                f"""
+                CREATE TABLE IF NOT EXISTS backup_cat3_group_class8_{timestamp} AS 
+                SELECT * FROM cat3_group WHERE class_num = 8
+                """
+            ]
+
+            for query in backup_queries:
+                cursor.execute(query)
+
+            connection.commit()
+            cursor.close()
+            connection.close()
+
+            print(f"✅ Backup created successfully with timestamp {timestamp}")
+            return True
+
+        except Error as e:
+            print(f"❌ Error creating backup: {e}")
+            return False
+
+    def migrate_class8_data(self):
+        """Migrate class 8 data from category 3 to category 4"""
+        connection = self.get_db_connection()
+        if not connection:
+            return False
+
+        try:
+            cursor = connection.cursor()
+
+            print("🔄 Starting migration of Class 8 data from Category 3 to Category 4...")
+
+            # Step 1: Get all class 8 records from cat3_individual
+            cursor.execute("SELECT * FROM cat3_individual WHERE class_num = 8")
+            individual_records = cursor.fetchall()
+
+            # Step 2: Get all class 8 records from cat3_group
+            cursor.execute("SELECT * FROM cat3_group WHERE class_num = 8")
+            group_records = cursor.fetchall()
+
+            if not individual_records and not group_records:
+                print("ℹ️  No Class 8 records found to migrate.")
+                cursor.close()
+                connection.close()
+                return True
+
+            records_migrated = 0
+
+            # Step 3: Insert individual records into cat4_individual
+            if individual_records:
+                print(f"   📝 Migrating {len(individual_records)} individual records...")
+                for record in individual_records:
+                    # record structure: (id, student_name, class_num, house, event_name, position, points, entry_date)
+                    insert_query = """
+                    INSERT INTO cat4_individual (student_name, class_num, house, event_name, position, points, entry_date)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """
+                    # Skip the ID (record[0]) as it's auto-increment
+                    cursor.execute(insert_query, record[1:])
+                    records_migrated += 1
+                    print(f"      ✓ Migrated: {record[1]} - {record[4]} (Position {record[5]})")
+
+            # Step 4: Insert group records into cat4_group
+            if group_records:
+                print(f"   👥 Migrating {len(group_records)} group records...")
+                for record in group_records:
+                    # record structure: (id, team_name, class_num, house, event_name, position, entry_date)
+                    insert_query = """
+                    INSERT INTO cat4_group (team_name, class_num, house, event_name, position, entry_date)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """
+                    # Skip the ID (record[0]) as it's auto-increment
+                    cursor.execute(insert_query, record[1:])
+                    records_migrated += 1
+                    print(f"      ✓ Migrated: {record[1]} - {record[4]} (Position {record[5]})")
+
+            # Step 5: Delete class 8 records from category 3 tables
+            if records_migrated > 0:
+                print("   🗑️  Removing records from Category 3 tables...")
+                cursor.execute("DELETE FROM cat3_individual WHERE class_num = 8")
+                ind_deleted = cursor.rowcount
+                cursor.execute("DELETE FROM cat3_group WHERE class_num = 8")
+                grp_deleted = cursor.rowcount
+                print(f"      ✓ Removed {ind_deleted} individual and {grp_deleted} group records")
+
+            connection.commit()
+            cursor.close()
+            connection.close()
+
+            print(f"✅ Migration completed successfully! {records_migrated} records migrated.")
+            return True
+
+        except Error as e:
+            print(f"❌ Error during migration: {e}")
+            connection.rollback()
+            return False
+
+    def verify_migration(self):
+        """Verify that migration was successful"""
+        connection = self.get_db_connection()
+        if not connection:
+            return
+
+        try:
+            cursor = connection.cursor()
+
+            print("\n🔍 Verifying migration...")
+
+            # Check if any class 8 records remain in category 3
+            cursor.execute("SELECT COUNT(*) FROM cat3_individual WHERE class_num = 8")
+            cat3_ind_count = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM cat3_group WHERE class_num = 8")
+            cat3_grp_count = cursor.fetchone()[0]
+
+            # Check how many class 8 records are now in category 4
+            cursor.execute("SELECT COUNT(*) FROM cat4_individual WHERE class_num = 8")
+            cat4_ind_count = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM cat4_group WHERE class_num = 8")
+            cat4_grp_count = cursor.fetchone()[0]
+
+            print(f"   Category 3 - Individual: {cat3_ind_count}, Group: {cat3_grp_count}")
+            print(f"   Category 4 - Individual: {cat4_ind_count}, Group: {cat4_grp_count}")
+
+            if cat3_ind_count == 0 and cat3_grp_count == 0:
+                print("✅ Verification successful: No Class 8 records remain in Category 3")
+                if cat4_ind_count > 0 or cat4_grp_count > 0:
+                    print(f"✅ Found {cat4_ind_count + cat4_grp_count} Class 8 records in Category 4")
+            else:
+                print("⚠️  Warning: Some Class 8 records still remain in Category 3")
+
+            cursor.close()
+            connection.close()
+
+        except Error as e:
+            print(f"❌ Error during verification: {e}")
+
+    def show_class8_summary(self):
+        """Show summary of class 8 data distribution"""
+        connection = self.get_db_connection()
+        if not connection:
+            return
+
+        try:
+            cursor = connection.cursor()
+
+            print("\n📊 Class 8 Data Summary:")
+            print("=" * 50)
+
+            # Check each category for class 8 data
+            for cat in range(1, 6):
+                cursor.execute(f"SELECT COUNT(*) FROM cat{cat}_individual WHERE class_num = 8")
+                ind_count = cursor.fetchone()[0]
+
+                cursor.execute(f"SELECT COUNT(*) FROM cat{cat}_group WHERE class_num = 8")
+                grp_count = cursor.fetchone()[0]
+
+                total = ind_count + grp_count
+                if total > 0:
+                    print(f"   Category {cat}: {ind_count} individual, {grp_count} group (Total: {total})")
+
+            cursor.close()
+            connection.close()
+
+        except Error as e:
+            print(f"❌ Error getting summary: {e}")
+
+    def run_migration(self):
+        """Run the complete migration process"""
+        print("🚀 Starting Class 8 Category Fix Migration")
+        print("=" * 60)
+
+        # Step 1: Show current state
+        self.show_class8_summary()
+
+        # Step 2: Ask for confirmation
+        response = input("\n❓ Do you want to proceed with the migration? (yes/no): ").lower().strip()
+        if response not in ['yes', 'y']:
+            print("❌ Migration cancelled by user.")
+            return
+
+        # Step 3: Create backup
+        if not self.backup_class8_data():
+            print("❌ Migration aborted due to backup failure.")
+            return
+
+        # Step 4: Perform migration
+        if not self.migrate_class8_data():
+            print("❌ Migration failed.")
+            return
+
+        # Step 5: Verify migration
+        self.verify_migration()
+
+        print("\n🎉 Migration process completed!")
+        print("💡 Don't forget to update your main application code with the corrected determine_category function.")
+
+
+if __name__ == "__main__":
+    print("Class 8 Category Fix Migration Tool")
+    print("This script will move all Class 8 data from Category 3 to Category 4")
+    print("=" * 70)
+
+    # Create and run migration
+    migrator = CategoryFixMigration()
+    migrator.run_migration()
